@@ -1,10 +1,15 @@
-import { GoogleGenAI, type LiveServerMessage, Modality } from '@google/genai';
+import {
+  EndSensitivity,
+  GoogleGenAI,
+  type LiveServerMessage,
+  Modality,
+  StartSensitivity,
+} from '@google/genai';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FRONTEND_GEMINI_ENABLED, FRONTEND_GEMINI_LIVE_ENABLED } from '../../shared/featureFlags';
 import {
   buildCompactSystemInstruction,
   buildRecentHistoryText,
-  MAX_PROMPT_HISTORY_MESSAGES,
 } from '../../shared/prompting';
 import { hasUnlimitedAccess } from '../../shared/access';
 import { KanchanaMode, Message, UserPreferences } from '../../shared/types';
@@ -32,11 +37,43 @@ interface AudioPageProps {
 
 const LIVE_INPUT_SAMPLE_RATE = 16000;
 const LIVE_OUTPUT_SAMPLE_RATE = 24000;
+const LIVE_CAPTURE_BUFFER_SIZE = 1024;
 const DEFAULT_LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025';
 const GEMINI_API_KEY = String(process.env.NEXT_PUBLIC_GEMINI_API_KEY || '').trim();
 const GEMINI_MODEL = String(process.env.NEXT_PUBLIC_GEMINI_MODEL || DEFAULT_LIVE_MODEL)
   .trim()
   .replace(/^models\//i, '');
+const GEMINI_PREBUILT_VOICE_NAME = String(process.env.NEXT_PUBLIC_GEMINI_VOICE_NAME || '').trim();
+
+const parseBoundedNumberEnv = (
+  value: string | undefined,
+  fallback: number,
+  min: number,
+  max: number
+): number => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+};
+
+const LIVE_INPUT_NOISE_GATE_RMS = parseBoundedNumberEnv(
+  process.env.NEXT_PUBLIC_GEMINI_LIVE_NOISE_GATE_RMS,
+  0.01,
+  0,
+  0.2
+);
+const LIVE_PREFIX_PADDING_MS = Math.round(
+  parseBoundedNumberEnv(process.env.NEXT_PUBLIC_GEMINI_LIVE_PREFIX_PADDING_MS, 80, 0, 1000)
+);
+const LIVE_SILENCE_MS = Math.round(
+  parseBoundedNumberEnv(process.env.NEXT_PUBLIC_GEMINI_LIVE_SILENCE_MS, 120, 80, 2000)
+);
+const LIVE_HISTORY_MESSAGE_LIMIT = Math.round(
+  parseBoundedNumberEnv(process.env.NEXT_PUBLIC_GEMINI_LIVE_HISTORY_MESSAGES, 2, 1, 4)
+);
+const LIVE_MAX_OUTPUT_TOKENS = Math.round(
+  parseBoundedNumberEnv(process.env.NEXT_PUBLIC_GEMINI_LIVE_MAX_OUTPUT_TOKENS, 90, 32, 220)
+);
 
 interface QueuedAudioChunk {
   pcm16: Int16Array;
@@ -168,8 +205,8 @@ const AudioPage: React.FC<AudioPageProps> = ({
   const playbackDrainingRef = useRef(false);
 
   const isPremium = hasUnlimitedAccess(preferences);
-  // Backend is source-of-truth for access control, so chat/voice requests should go via backend.
-  const useGeminiLiveAudio = false;
+  const useGeminiLiveAudio =
+    FRONTEND_GEMINI_ENABLED && FRONTEND_GEMINI_LIVE_ENABLED && Boolean(GEMINI_API_KEY);
   const isVoiceActive = status === 'listening' || status === 'processing' || status === 'speaking';
   const hasReachedFreeLimit = !isPremium && voiceBlocked;
 
@@ -287,7 +324,10 @@ const AudioPage: React.FC<AudioPageProps> = ({
 
         let context = playbackContextRef.current;
         if (!context) {
-          context = new AudioContext();
+          context = new AudioContext({
+            latencyHint: 'interactive',
+            sampleRate: Math.max(8000, nextChunk.sampleRate || LIVE_OUTPUT_SAMPLE_RATE),
+          });
           playbackContextRef.current = context;
         }
         if (context.state === 'suspended') {
@@ -389,15 +429,36 @@ const AudioPage: React.FC<AudioPageProps> = ({
 
     try {
       const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+      const speechConfig = GEMINI_PREBUILT_VOICE_NAME
+        ? {
+            voiceConfig: {
+              prebuiltVoiceConfig: {
+                voiceName: GEMINI_PREBUILT_VOICE_NAME,
+              },
+            },
+          }
+        : undefined;
+
       const session = await ai.live.connect({
         model: GEMINI_MODEL || DEFAULT_LIVE_MODEL,
         config: {
           responseModalities: [Modality.AUDIO],
+          maxOutputTokens: LIVE_MAX_OUTPUT_TOKENS,
+          speechConfig,
+          realtimeInputConfig: {
+            automaticActivityDetection: {
+              startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
+              endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_HIGH,
+              prefixPaddingMs: LIVE_PREFIX_PADDING_MS,
+              silenceDurationMs: LIVE_SILENCE_MS,
+            },
+          },
           systemInstruction: buildCompactSystemInstruction({
             mode: activeMode,
             userName: preferences.name || 'Mystery Soul',
             isPremium,
-            extraPrompt: 'Keep mode tone strongest. Reply naturally and briefly.',
+            extraPrompt:
+              'Keep mode tone strongest. Reply naturally and briefly. Always prioritize the latest user utterance over older context unless explicitly asked. Audio must be clean dry voice only, no music, ambience, or sound effects.',
           }),
         },
         callbacks: {
@@ -432,6 +493,7 @@ const AudioPage: React.FC<AudioPageProps> = ({
           noiseSuppression: true,
           echoCancellation: true,
           autoGainControl: true,
+          sampleRate: LIVE_INPUT_SAMPLE_RATE,
         },
       });
       captureStreamRef.current = mediaStream;
@@ -446,7 +508,7 @@ const AudioPage: React.FC<AudioPageProps> = ({
       captureAudioContextRef.current = captureContext;
 
       const sourceNode = captureContext.createMediaStreamSource(mediaStream);
-      const processorNode = captureContext.createScriptProcessor(2048, 1, 1);
+      const processorNode = captureContext.createScriptProcessor(LIVE_CAPTURE_BUFFER_SIZE, 1, 1);
       const silentGain = captureContext.createGain();
       silentGain.gain.value = 0;
 
@@ -454,17 +516,18 @@ const AudioPage: React.FC<AudioPageProps> = ({
         if (!liveSessionRef.current || hasReachedFreeLimitRef.current) return;
 
         const channelData = event.inputBuffer.getChannelData(0);
+        const rms = calculateRms(channelData);
+        if (!unmountedRef.current) {
+          setMicLevel(Math.min(100, Math.round(rms * 300)));
+        }
+        if (rms < LIVE_INPUT_NOISE_GATE_RMS) return;
+
         const pcm16 = downsampleFloatToPcm16(
           channelData,
           captureContext.sampleRate || LIVE_INPUT_SAMPLE_RATE,
           LIVE_INPUT_SAMPLE_RATE
         );
         if (!pcm16.length) return;
-
-        const rms = calculateRms(channelData);
-        if (!unmountedRef.current) {
-          setMicLevel(Math.min(100, Math.max(8, Math.round(rms * 260))));
-        }
 
         try {
           liveSessionRef.current.sendRealtimeInput({
@@ -493,7 +556,7 @@ const AudioPage: React.FC<AudioPageProps> = ({
         setStatus('listening');
       }
 
-      const historyText = buildRecentHistoryText(latestMessages, MAX_PROMPT_HISTORY_MESSAGES);
+      const historyText = buildRecentHistoryText(latestMessages, LIVE_HISTORY_MESSAGE_LIMIT);
       if (historyText) {
         session.sendClientContent({
           turns: [
@@ -506,7 +569,7 @@ const AudioPage: React.FC<AudioPageProps> = ({
         });
       }
 
-      if (!autoStarterSentRef.current) {
+      if (!autoStarterSentRef.current && latestMessages.length === 0) {
         autoStarterSentRef.current = true;
         const displayName = preferences.name || 'jaan';
         session.sendClientContent({
