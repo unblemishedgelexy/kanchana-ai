@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 interface TooltipState {
@@ -12,6 +12,7 @@ interface TooltipState {
 
 const EDGE_PADDING = 12;
 const TOOLTIP_HEIGHT = 34;
+const HOVER_SHOW_DELAY_MS = 3000;
 
 const getTooltipTarget = (eventTarget: EventTarget | null): HTMLElement | null => {
   if (!(eventTarget instanceof Element)) return null;
@@ -76,6 +77,15 @@ const GlobalIconTooltip: React.FC = () => {
     y: 0,
     visible: false,
   });
+  const hoverTimerRef = useRef<number | null>(null);
+  const hoverTargetRef = useRef<HTMLElement | null>(null);
+
+  const clearHoverTimer = () => {
+    if (hoverTimerRef.current !== null) {
+      window.clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+  };
 
   useEffect(() => {
     setMounted(true);
@@ -87,23 +97,57 @@ const GlobalIconTooltip: React.FC = () => {
 
       const target = getTooltipTarget(event.target);
       if (!target) {
+        hoverTargetRef.current = null;
+        clearHoverTimer();
         setTooltip((previous) => (previous.visible ? { ...previous, visible: false } : previous));
         return;
       }
 
       const text = getTooltipText(target);
-      if (!text) return;
+      if (!text) {
+        hoverTargetRef.current = null;
+        clearHoverTimer();
+        setTooltip((previous) => (previous.visible ? { ...previous, visible: false } : previous));
+        return;
+      }
 
       const position = getTooltipPosition(event.clientX, event.clientY, text);
-      setTooltip({
-        text,
-        x: position.x,
-        y: position.y,
-        visible: true,
-      });
+      if (tooltip.visible && hoverTargetRef.current === target) {
+        setTooltip((previous) => ({
+          ...previous,
+          x: position.x,
+          y: position.y,
+        }));
+        return;
+      }
+
+      if (hoverTargetRef.current !== target) {
+        clearHoverTimer();
+        hoverTargetRef.current = target;
+      }
+
+      if (hoverTimerRef.current !== null) {
+        return;
+      }
+
+      hoverTimerRef.current = window.setTimeout(() => {
+        hoverTimerRef.current = null;
+        if (!hoverTargetRef.current || hoverTargetRef.current !== target) {
+          return;
+        }
+
+        setTooltip({
+          text,
+          x: position.x,
+          y: position.y,
+          visible: true,
+        });
+      }, HOVER_SHOW_DELAY_MS);
     };
 
     const showFocusTooltip = (event: FocusEvent) => {
+      clearHoverTimer();
+      hoverTargetRef.current = null;
       const target = getTooltipTarget(event.target);
       if (!target) return;
 
@@ -121,6 +165,8 @@ const GlobalIconTooltip: React.FC = () => {
     };
 
     const hideTooltip = () => {
+      clearHoverTimer();
+      hoverTargetRef.current = null;
       setTooltip((previous) => (previous.visible ? { ...previous, visible: false } : previous));
     };
 
@@ -137,6 +183,7 @@ const GlobalIconTooltip: React.FC = () => {
     window.addEventListener('keydown', hideOnEscape, true);
 
     return () => {
+      clearHoverTimer();
       window.removeEventListener('pointermove', showPointerTooltip, true);
       window.removeEventListener('focusin', showFocusTooltip, true);
       window.removeEventListener('focusout', hideTooltip, true);

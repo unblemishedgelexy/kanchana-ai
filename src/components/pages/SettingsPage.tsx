@@ -1,9 +1,5 @@
 import React, { useState } from 'react';
 import { AppView, KanchanaMode, UserPreferences, UserTier } from '../../shared/types';
-import {
-  MAX_FREE_MESSAGES_PER_MODE,
-  MAX_GUEST_MESSAGES_PER_MODE,
-} from '../../shared/constants';
 import { isHostUser } from '../../shared/access';
 import AppButton from '../ui/AppButton';
 import AppInput from '../ui/AppInput';
@@ -150,8 +146,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                   {isHost
                     ? 'Host Access: Unlimited (No Premium Needed)'
                     : preferences.tier === UserTier.PREMIUM
-                    ? 'Remaining Whispers: Unlimited'
-                    : `Free: ${MAX_FREE_MESSAGES_PER_MODE} messages per mode | Guest: ${MAX_GUEST_MESSAGES_PER_MODE} per mode`}
+                    ? 'Premium benefits active'
+                    : 'Free plan active'}
                 </p>
               </div>
               <AppButton

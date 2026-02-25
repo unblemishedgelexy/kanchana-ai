@@ -91,34 +91,6 @@ export const useAppHandlers = ({
     return payload?.usage || payload?.error?.usage || null;
   };
 
-  const formatUsageNotice = (usage: ChatUsage | undefined): string => {
-    if (!usage) return 'Message sent.';
-    const limitType = usage.limitType || (usage.isHost ? 'host' : usage.isPremium ? 'premium' : 'free');
-
-    if (limitType === 'host') return 'Host access active.';
-    if (limitType === 'premium') return 'Premium access active.';
-
-    const total =
-      Number.isFinite(usage.modeLimit) && usage.modeLimit
-        ? usage.modeLimit
-        : Number.isFinite(usage.maxFreeMessages)
-          ? usage.maxFreeMessages
-          : undefined;
-
-    if (Number.isFinite(usage.remainingMessages)) {
-      if (Number.isFinite(total)) {
-        return `${String(limitType).toUpperCase()} mode usage: ${usage.messageCount}/${total} (${usage.remainingMessages} left)`;
-      }
-      return `${String(limitType).toUpperCase()} remaining: ${usage.remainingMessages}`;
-    }
-
-    if (Number.isFinite(total)) {
-      return `${String(limitType).toUpperCase()} mode usage: ${usage.messageCount}/${total}`;
-    }
-
-    return 'Message sent.';
-  };
-
   const buildHintFromError = (input: {
     code?: BackendErrorCode | string;
     message: string;
@@ -327,7 +299,7 @@ export const useAppHandlers = ({
           [activeMode]: [...existing, response.userMessage, response.assistantMessage],
         };
       });
-      setInfoMsg(formatUsageNotice(response.usage));
+      setInfoMsg(null);
     } catch (error) {
       setThreads((prev) => ({
         ...prev,

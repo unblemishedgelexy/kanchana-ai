@@ -34,23 +34,8 @@ export default function ChatModePage() {
         void runtime.handleSendMessage(text, false);
       }}
       isTyping={runtime.isTyping}
-      usage={runtime.activeUsage}
-      hint={runtime.chatHint}
-      isAuthenticated={runtime.isAuthenticated}
       voiceDisabled={voiceDisabled}
       voiceDisabledMessage={voiceDisabledMessage}
-      onHintPrimaryAction={(hint) => {
-        if (hint.kind === 'login') {
-          runtime.setView('login');
-          return;
-        }
-        if (hint.kind === 'upgrade') {
-          runtime.setView(runtime.isAuthenticated ? 'upgrade' : 'login');
-          return;
-        }
-        runtime.setView(runtime.isAuthenticated ? 'upgrade' : 'login');
-      }}
-      onHintDismiss={runtime.clearChatHint}
       userAvatarUrl={runtime.preferences.profileImageUrl}
       profileSeed={profileSeed}
       onOpenAudio={() => runtime.setView(runtime.isAuthenticated ? 'audio' : 'login')}

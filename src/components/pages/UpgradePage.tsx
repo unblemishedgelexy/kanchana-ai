@@ -1,9 +1,5 @@
 import React, { useState } from 'react';
 import { PremiumOverview, UserPreferences, UserTier } from '../../shared/types';
-import {
-  MAX_FREE_MESSAGES_PER_MODE,
-  MAX_GUEST_MESSAGES_PER_MODE,
-} from '../../shared/constants';
 import { isHostUser } from '../../shared/access';
 import { PAYMENTS_ENABLED } from '../../shared/featureFlags';
 import AppButton from '../ui/AppButton';
@@ -109,8 +105,8 @@ const UpgradePage: React.FC<Props> = ({
               <span className="text-xs text-slate-600 font-bold uppercase tracking-widest">/ forever</span>
             </div>
             <ul className="space-y-4 text-sm text-slate-500 font-medium">
-              <li>Guest: {MAX_GUEST_MESSAGES_PER_MODE} messages per mode</li>
-              <li>Logged-in Free: {MAX_FREE_MESSAGES_PER_MODE} messages per mode</li>
+              <li>Core chat access</li>
+              <li>Standard companion experience</li>
               <li>Basic Modes</li>
               <li>No semantic memory recall</li>
             </ul>

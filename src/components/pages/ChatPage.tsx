@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChatUsage, ChatUxHint, KanchanaMode, Message } from '../../shared/types';
+import { KanchanaMode, Message } from '../../shared/types';
 import ChatHeader from '../chat/ChatHeader';
 import ChatMessageFeed from '../chat/ChatMessageFeed';
 import ChatComposer from '../chat/ChatComposer';
@@ -11,13 +11,8 @@ interface ChatPageProps {
   activeMode: KanchanaMode;
   onSend: (text: string) => void;
   isTyping: boolean;
-  usage?: ChatUsage | null;
-  hint?: ChatUxHint | null;
-  isAuthenticated?: boolean;
   voiceDisabled?: boolean;
   voiceDisabledMessage?: string;
-  onHintPrimaryAction?: (hint: ChatUxHint) => void;
-  onHintDismiss?: () => void;
   userAvatarUrl?: string;
   profileSeed?: string;
   onOpenAudio?: () => void;
@@ -29,13 +24,8 @@ const ChatPage: React.FC<ChatPageProps> = ({
   activeMode,
   onSend,
   isTyping,
-  usage = null,
-  hint = null,
-  isAuthenticated = false,
   voiceDisabled = false,
   voiceDisabledMessage = '',
-  onHintPrimaryAction,
-  onHintDismiss,
   userAvatarUrl,
   profileSeed,
   onOpenAudio,
@@ -48,29 +38,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const [showNewMessageArrow, setShowNewMessageArrow] = useState(false);
   const messages = threads[activeMode] || [];
   const backgroundUrl = useMemo(() => getModeBackground(activeMode), [activeMode]);
-  const usageLabel = useMemo(() => {
-    if (!usage) return '';
-    const limitType = usage.limitType || (usage.isHost ? 'host' : usage.isPremium ? 'premium' : 'free');
-
-    if (limitType === 'host') return 'Host access active';
-    if (limitType === 'premium') return 'Premium access active';
-
-    const total =
-      Number.isFinite(usage.modeLimit) && usage.modeLimit
-        ? usage.modeLimit
-        : Number.isFinite(usage.maxFreeMessages)
-          ? usage.maxFreeMessages
-          : undefined;
-
-    if (Number.isFinite(usage.remainingMessages) && Number.isFinite(total)) {
-      return `${String(limitType).toUpperCase()} ${usage.messageCount}/${total} (${usage.remainingMessages} left)`;
-    }
-    if (Number.isFinite(total)) {
-      return `${String(limitType).toUpperCase()} ${usage.messageCount}/${total}`;
-    }
-
-    return '';
-  }, [usage]);
 
   const isNearBottom = useCallback(() => {
     const container = feedContainerRef.current;
@@ -176,46 +143,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
         containerRef={feedContainerRef}
         onScroll={handleFeedScroll}
       />
-
-      {(usageLabel || hint) && (
-        <div className="absolute inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+9.4rem)] xl:bottom-[7rem] z-[65] px-3 sm:px-6">
-          <div className="mx-auto max-w-5xl rounded-2xl border border-white/10 bg-black/75 px-3 py-2.5 sm:px-4 backdrop-blur-xl">
-            {usageLabel && (
-              <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-purple-200">{usageLabel}</p>
-            )}
-            {hint && (
-              <div className="mt-1.5 flex items-center justify-between gap-3">
-                <p className="text-[11px] text-amber-200/95 leading-relaxed">{hint.message}</p>
-                <div className="flex items-center gap-2 shrink-0">
-                  {onHintPrimaryAction && (
-                    <AppButton
-                      onClick={() => onHintPrimaryAction(hint)}
-                      variant="outline"
-                      className="rounded-full px-3 py-1 text-[9px] uppercase tracking-[0.16em]"
-                    >
-                      {hint.ctaLabel || (hint.kind === 'upgrade' ? 'Upgrade' : hint.kind === 'login' ? 'Login' : 'Open')}
-                    </AppButton>
-                  )}
-                  {onHintDismiss && (
-                    <AppButton
-                      onClick={onHintDismiss}
-                      variant="ghost"
-                      className="rounded-full px-2 py-1 text-[9px] uppercase tracking-[0.16em] text-slate-300"
-                    >
-                      Close
-                    </AppButton>
-                  )}
-                </div>
-              </div>
-            )}
-            {!isAuthenticated && !hint && usageLabel && (
-              <p className="mt-1 text-[9px] uppercase tracking-[0.16em] text-slate-400">
-                Login to unlock voice mode.
-              </p>
-            )}
-          </div>
-        </div>
-      )}
 
       {showNewMessageArrow && (
         <AppButton

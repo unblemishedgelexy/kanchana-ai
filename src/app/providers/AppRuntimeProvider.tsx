@@ -13,7 +13,7 @@ import {
 } from '../../shared/types';
 import { isHostUser } from '../../shared/access';
 import { api } from '../../services/api';
-import { defaultPreferences, STORAGE_KEYS, writeStorage } from '../appState';
+import { BACKEND_POLL_MS, defaultPreferences, STORAGE_KEYS, writeStorage } from '../appState';
 import { usePersistentAppState } from '../hooks/usePersistentAppState';
 import { usePremiumOverview } from '../hooks/usePremiumOverview';
 import { useAppHandlers } from '../hooks/useAppHandlers';
@@ -226,6 +226,29 @@ export const AppRuntimeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   }, [voiceBlockedState]);
 
   useEffect(() => {
+    if (!storageReady) return;
+    let inFlight = false;
+
+    const pingBackendKeepAlive = () => {
+      if (inFlight) return;
+      inFlight = true;
+      api
+        .health()
+        .catch(() => undefined)
+        .finally(() => {
+          inFlight = false;
+        });
+    };
+
+    pingBackendKeepAlive();
+    const intervalId = window.setInterval(pingBackendKeepAlive, BACKEND_POLL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [storageReady]);
+
+  useEffect(() => {
     const intervalId = window.setInterval(() => {
       const today = getDayStamp();
       setVoiceBlockedState((previous) =>
@@ -247,6 +270,7 @@ export const AppRuntimeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   useEffect(() => {
     if (!storageReady) return;
+    let cancelled = false;
     const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : '';
     const searchString = window.location.search.startsWith('?')
       ? window.location.search.slice(1)
@@ -267,11 +291,26 @@ export const AppRuntimeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     if (googleToken) {
       setToken(googleToken);
-      setPreferences((prev) => ({ ...prev, isAuthenticated: true }));
       writeStorage(STORAGE_KEYS.token, googleToken);
       setInfoMsg('Google login completed.');
       setErrorMsg(null);
-      setView('home');
+      api
+        .me(googleToken)
+        .then(({ user }) => {
+          if (cancelled) return;
+          setPreferences({ ...user, isAuthenticated: true });
+          if (user.mode) {
+            setActiveMode(user.mode);
+          }
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setPreferences((prev) => ({ ...prev, isAuthenticated: true }));
+        })
+        .finally(() => {
+          if (cancelled) return;
+          setView('home');
+        });
     } else if (googleError) {
       setErrorMsg(`Google login failed: ${googleError}`);
       setView('login');
@@ -284,7 +323,10 @@ export const AppRuntimeProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         `${window.location.pathname}${window.location.search}`
       );
     }
-  }, [storageReady, pathname, setToken, setPreferences, setView]);
+    return () => {
+      cancelled = true;
+    };
+  }, [storageReady, pathname, setToken, setPreferences, setActiveMode, setView]);
 
   useEffect(() => {
     if (!storageReady) return;
