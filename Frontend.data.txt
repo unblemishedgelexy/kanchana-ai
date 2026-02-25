@@ -1,0 +1,742 @@
+# Frontend API Routes Reference
+
+This document is for frontend integration with Kanchana backend.
+
+Base URL examples:
+
+- Local: `http://localhost:3000`
+- Production: `https://kanchana-ai-backend.onrender.com`
+
+API prefix for all routes: `/api`
+
+## 1. Common Rules
+
+### 1.1 Auth header
+
+Protected routes require:
+
+`Authorization: Bearer <token>`
+
+Token is returned by login/register/google routes.
+
+### 1.2 Content type
+
+For JSON endpoints send:
+
+`Content-Type: application/json`
+
+### 1.3 Standard error shape
+
+Most errors return:
+
+```json
+{
+  "message": "Human readable error",
+  "code": "OPTIONAL_MACHINE_CODE",
+  "details": {}
+}
+```
+
+### 1.4 Route not found
+
+Invalid route returns:
+
+```json
+{
+  "message": "Route not found: <METHOD> <PATH>"
+}
+```
+
+### 1.5 Valid mode values
+
+Use one of:
+
+- `Lovely`
+- `Horror`
+- `Shayari`
+- `Chill`
+- `Possessive`
+- `Naughty`
+- `Mystic`
+
+### 1.6 Rate limits
+
+- Auth routes: `20 requests/minute` per IP
+- Chat message route: `45 requests/minute` per IP
+- Payment routes (except webhook): `20 requests/minute` per IP
+
+429 response:
+
+```json
+{
+  "message": "Too many requests ..."
+}
+```
+
+## 2. System Routes
+
+### GET `/api/health`
+
+Auth: No
+
+Response 200:
+
+```json
+{
+  "status": "ok",
+  "uptime": 12.34,
+  "timestamp": "2026-02-24T07:00:00.000Z"
+}
+```
+
+### GET `/api/ping`
+
+Auth: No
+
+Response 200:
+
+```json
+{
+  "pong": true,
+  "timestamp": "2026-02-24T07:00:00.000Z"
+}
+```
+
+## 3. Auth Routes
+
+### POST `/api/auth/register`
+
+Auth: No
+
+Body:
+
+```json
+{
+  "name": "Ravi",
+  "email": "ravi@example.com",
+  "password": "StrongPass123!"
+}
+```
+
+Validation:
+
+- All fields required
+- Valid email format
+- Password min length 8
+
+Response 201:
+
+```json
+{
+  "token": "<session-token>",
+  "user": {
+    "id": "user_id",
+    "name": "Ravi",
+    "email": "ravi@example.com",
+    "tier": "Free",
+    "mode": "Lovely",
+    "messageCount": 0,
+    "profileImageUrl": "",
+    "upgradeAssetUrl": "",
+    "isAuthenticated": true
+  }
+}
+```
+
+Common errors: `400`, `409`
+
+### POST `/api/auth/login`
+
+Auth: No
+
+Body:
+
+```json
+{
+  "email": "ravi@example.com",
+  "password": "StrongPass123!"
+}
+```
+
+Response 200: same shape as register.
+
+Common errors: `400`, `401`
+
+### POST `/api/auth/google`
+
+Auth: No
+
+Body:
+
+```json
+{
+  "idToken": "<google-id-token>"
+}
+```
+
+Response 200: same token/user shape.
+
+Common errors:
+
+- `400` missing token
+- `401` invalid token
+- `503` google auth not configured
+
+### GET `/api/auth/google/start`
+
+Auth: No
+
+Query:
+
+- `redirect` optional (must start with `/`), example: `/chat`
+
+Behavior:
+
+- Returns `302` redirect to Google OAuth URL.
+
+### GET `/api/auth/google/callback`
+
+Auth: No
+
+Query:
+
+- `code` from Google
+- `state` from start route
+- `error` from Google on deny
+- `format=json` optional
+
+Behavior:
+
+- If `format=json`: returns JSON token/user or JSON error.
+- If no format: redirects to frontend success/error URL with hash params.
+
+JSON success 200:
+
+```json
+{
+  "token": "<session-token>",
+  "user": {}
+}
+```
+
+JSON error examples:
+
+- `400` invalid state
+- `401` access denied or invalid auth code
+
+### POST `/api/auth/forgot-password`
+
+Auth: No
+
+Body:
+
+```json
+{
+  "email": "ravi@example.com"
+}
+```
+
+Response 200:
+
+```json
+{
+  "message": "If that email exists, a password reset link has been sent."
+}
+```
+
+In non-production, if user exists it may include `debugResetToken`.
+
+### POST `/api/auth/reset-password`
+
+Auth: No
+
+Body:
+
+```json
+{
+  "token": "<reset-token>",
+  "newPassword": "NewStrongPass123!"
+}
+```
+
+Response 200:
+
+```json
+{
+  "message": "Password updated successfully. Please login again."
+}
+```
+
+Common errors: `400`, `404`
+
+### GET `/api/auth/me`
+
+Auth: Yes
+
+Response 200:
+
+```json
+{
+  "user": {
+    "id": "user_id",
+    "name": "Ravi",
+    "email": "ravi@example.com",
+    "tier": "Free",
+    "mode": "Lovely",
+    "messageCount": 1,
+    "profileImageUrl": "",
+    "upgradeAssetUrl": "",
+    "isAuthenticated": true
+  }
+}
+```
+
+Common errors: `401`
+
+### POST `/api/auth/logout`
+
+Auth: Yes
+
+Response 200:
+
+```json
+{
+  "message": "Logged out successfully."
+}
+```
+
+### PATCH `/api/auth/preferences`
+
+Auth: Yes
+
+Body (send one or both):
+
+```json
+{
+  "name": "Ravi Updated",
+  "mode": "Lovely"
+}
+```
+
+Response 200:
+
+```json
+{
+  "message": "Preferences updated.",
+  "user": {}
+}
+```
+
+Common errors:
+
+- `400` no fields or invalid mode
+
+### POST `/api/auth/upgrade`
+
+Auth: Yes
+
+Response 200:
+
+```json
+{
+  "message": "Account upgraded to premium.",
+  "user": {}
+}
+```
+
+## 4. Content Routes
+
+### GET `/api/content/simple`
+
+Auth: No
+
+Response 200:
+
+```json
+{
+  "type": "simple",
+  "title": "Daily Whisper",
+  "content": "..."
+}
+```
+
+### GET `/api/content/premium`
+
+Auth: Yes + premium user
+
+Response 200:
+
+```json
+{
+  "type": "premium",
+  "title": "Golden Insight",
+  "content": "..."
+}
+```
+
+Common errors:
+
+- `401` no/invalid token
+- `403` `{ "code": "PREMIUM_REQUIRED" }`
+
+## 5. Chat Routes
+
+All chat routes are auth protected.
+
+### POST `/api/chat/message`
+
+Auth: Yes
+
+Optional header:
+
+- `x-request-id: <custom-id>` (if not passed, server generates one)
+
+Body:
+
+```json
+{
+  "mode": "Lovely",
+  "text": "Hello",
+  "voiceMode": false
+}
+```
+
+Notes:
+
+- `text` is required.
+- Max text length: 4000 chars.
+- Free tier has limit via `MAX_FREE_MESSAGES`.
+- `voiceMode=true` uses premium model behavior.
+- If image is generated, `assistantMessage.imageUrl` is included.
+
+Response 200:
+
+```json
+{
+  "userMessage": {
+    "id": "msg_1",
+    "role": "user",
+    "text": "Hello",
+    "timestamp": 1771916715557
+  },
+  "assistantMessage": {
+    "id": "msg_2",
+    "role": "kanchana",
+    "text": "Hi...",
+    "timestamp": 1771916715890,
+    "imageUrl": "https://..."
+  },
+  "usage": {
+    "messageCount": 1,
+    "maxFreeMessages": 50,
+    "isPremium": false
+  },
+  "mode": "Lovely",
+  "user": {}
+}
+```
+
+Response header includes `x-request-id`.
+
+Common errors:
+
+- `400` missing/too long text
+- `401` unauthorized
+- `403` `FREE_TIER_LIMIT_REACHED`
+
+### GET `/api/chat/history?mode=Lovely&limit=40`
+
+Auth: Yes
+
+Query:
+
+- `mode` optional
+- `limit` optional (default 40)
+
+Response 200:
+
+```json
+{
+  "mode": "Lovely",
+  "messages": [
+    {
+      "id": "msg_1",
+      "role": "user",
+      "text": "Hello",
+      "timestamp": 1771916715557
+    }
+  ]
+}
+```
+
+### DELETE `/api/chat/history?mode=Lovely`
+
+Auth: Yes
+
+Mode can come from query or body.
+
+Response 200:
+
+```json
+{
+  "message": "History cleared.",
+  "mode": "Lovely",
+  "deletedCount": 2
+}
+```
+
+## 6. Media Routes
+
+All media routes are auth protected.
+
+### GET `/api/media/imagekit/auth`
+
+Auth: Yes
+
+Response 200:
+
+```json
+{
+  "token": {
+    "userId": "user_id"
+  },
+  "expire": 1771919387,
+  "signature": "...",
+  "publicKey": "...",
+  "urlEndpoint": "https://ik.imagekit.io/..."
+}
+```
+
+Common errors:
+
+- `503` ImageKit not configured
+
+### POST `/api/media/profile-image`
+
+Auth: Yes
+
+Body (one of these is required):
+
+```json
+{
+  "dataUri": "data:image/png;base64,..."
+}
+```
+
+or
+
+```json
+{
+  "imageUrl": "https://example.com/image.jpg"
+}
+```
+
+Response 201:
+
+```json
+{
+  "message": "Profile image uploaded.",
+  "image": {
+    "url": "https://...",
+    "thumbnailUrl": "https://...",
+    "fileId": "..."
+  },
+  "user": {}
+}
+```
+
+### POST `/api/media/upgrade-asset`
+
+Auth: Yes
+
+Body same as profile-image.
+
+Response 201:
+
+```json
+{
+  "message": "Upgrade asset uploaded to cloud storage.",
+  "asset": {
+    "url": "https://...",
+    "thumbnailUrl": "https://...",
+    "fileId": "..."
+  },
+  "user": {}
+}
+```
+
+## 7. Payment Routes
+
+### POST `/api/payments/paypal/webhook`
+
+Auth: No (PayPal server-to-server route)
+
+Body: PayPal webhook event payload.
+
+Response 200:
+
+```json
+{
+  "received": true
+}
+```
+
+Common errors:
+
+- `401` invalid signature
+- `503` PayPal not configured
+
+### GET `/api/payments/premium/overview`
+
+Auth: Yes
+
+Response 200:
+
+```json
+{
+  "isPremium": false,
+  "tier": "Free",
+  "pricing": {
+    "price": 1.49,
+    "currency": "USD"
+  },
+  "paypal": {
+    "configured": true,
+    "subscriptionPlanConfigured": false,
+    "mode": "ready"
+  },
+  "latestPayment": {
+    "id": "payment_id",
+    "provider": "paypal",
+    "flow": "order",
+    "providerRef": "ORDER_ID",
+    "status": "CREATED",
+    "amount": 1.49,
+    "currency": "USD",
+    "createdAt": "2026-02-24T07:00:00.000Z",
+    "updatedAt": "2026-02-24T07:00:00.000Z"
+  },
+  "nextAction": "create_order_or_subscription"
+}
+```
+
+`latestPayment` can be `null`.
+
+### POST `/api/payments/paypal/order`
+
+Auth: Yes
+
+Body: none
+
+Response 201:
+
+```json
+{
+  "providerRef": "ORDER_ID",
+  "approvalUrl": "https://www.sandbox.paypal.com/checkoutnow?token=ORDER_ID",
+  "rawStatus": "CREATED"
+}
+```
+
+Common errors:
+
+- `503` PayPal not configured
+
+### POST `/api/payments/paypal/capture`
+
+Auth: Yes
+
+Body:
+
+```json
+{
+  "orderId": "ORDER_ID"
+}
+```
+
+Response 200 on capture complete:
+
+```json
+{
+  "status": "COMPLETED",
+  "user": {},
+  "providerRef": "ORDER_ID"
+}
+```
+
+Common errors:
+
+- `400` orderId missing
+- `409` order not approved/already captured/not captureable
+
+### POST `/api/payments/paypal/subscription`
+
+Auth: Yes
+
+Body: none
+
+Response 201:
+
+```json
+{
+  "providerRef": "SUBSCRIPTION_ID",
+  "approvalUrl": "https://www.sandbox.paypal.com/...",
+  "rawStatus": "APPROVAL_PENDING"
+}
+```
+
+Common errors:
+
+- `503` plan not configured or invalid (`PAYPAL_PLAN_INVALID`)
+
+### POST `/api/payments/dev/upgrade`
+
+Auth: Yes
+
+Response 200:
+
+```json
+{
+  "message": "Premium upgraded successfully.",
+  "user": {}
+}
+```
+
+Use only for testing/internal flow, not public frontend billing flow.
+
+## 8. Frontend Integration Flow (Recommended)
+
+### 8.1 App startup
+
+1. Call `GET /api/health` or `GET /api/ping`.
+2. If token exists in storage, call `GET /api/auth/me`.
+
+### 8.2 Normal auth flow
+
+1. Signup: `POST /api/auth/register` or login: `POST /api/auth/login`.
+2. Save token.
+3. Send token in `Authorization` for protected routes.
+
+### 8.3 Google OAuth flow (backend callback pattern)
+
+1. Open browser to `/api/auth/google/start?redirect=/desired-page`.
+2. After callback, backend redirects frontend with hash params:
+   - success: `#provider=google&token=<token>`
+   - error: `#provider=google&error=<error-code>`
+3. Parse hash token and store it.
+
+### 8.4 Chat screen
+
+1. Send message: `POST /api/chat/message`.
+2. Render `assistantMessage`.
+3. Use `GET /api/chat/history` for reload.
+4. Use `DELETE /api/chat/history` for clear.
+
+### 8.5 Premium upgrade
+
+1. Read `GET /api/payments/premium/overview`.
+2. Create order via `POST /api/payments/paypal/order`.
+3. Redirect user to `approvalUrl`.
+4. After user approves, call `POST /api/payments/paypal/capture` with `orderId`.
+5. Refresh `GET /api/auth/me` and `GET /api/content/premium`.
+

@@ -1,0 +1,7 @@
+{
+  "name": "Kanchana AI",
+  "description": "A mysterious, emotionally intelligent, and poetic AI companion with a dark aesthetic. Features chat, shayari, and live voice interactions.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
